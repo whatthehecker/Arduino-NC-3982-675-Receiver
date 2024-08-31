@@ -16,7 +16,7 @@ const int LOW_GAP_DURATION = 2000;
 uint8_t dataBitIndex = 0;
 // The number of data bits expected in each payload.
 const size_t PAYLOAD_BITS_COUNT = 40;
-bool dataBits[PAYLOAD_BITS_COUNT];
+uint8_t dataBytes[PAYLOAD_BITS_COUNT / 8] = { 0 };
 
 enum State {
   SEARCHING_PREFIX, FOUND_PREFIX
@@ -111,21 +111,11 @@ void loop()
           if (dataBitIndex == PAYLOAD_BITS_COUNT && millis() - lastFullTransmissionMillis >= MIN_DELAY_BETWEEN_TRANSMISSIONS)
           {
             Serial.println("Data as hex: ");
-            size_t bytesCount = PAYLOAD_BITS_COUNT / 8;
-            uint8_t dataBytes[bytesCount];
-
-            for (size_t byteIndex = 0; byteIndex < bytesCount; byteIndex++)
+            for (size_t byteIndex = 0; byteIndex < PAYLOAD_BITS_COUNT / 8; byteIndex++)
             {
-              dataBytes[byteIndex] = 0;
-              for (size_t bitIndex = 0; bitIndex < 8; bitIndex++)
-              {
-                dataBytes[byteIndex] |= (dataBits[bitIndex + byteIndex * 8] << (7 - bitIndex));
-              }
-
               Serial.print(dataBytes[byteIndex], HEX);
               Serial.print(" ");
             }
-
             Serial.println();
 
             printDecodedData(dataBytes);
@@ -133,7 +123,7 @@ void loop()
           }
 
           dataBitIndex = 0;
-          memset(dataBits, false, sizeof(dataBits));
+          memset(dataBytes, false, sizeof(dataBytes));
 
           currentState = SEARCHING_PREFIX;
           break;
@@ -149,13 +139,14 @@ void loop()
         if (!isLow && !isHigh || dataBitIndex >= PAYLOAD_BITS_COUNT)
         {
           dataBitIndex = 0;
-          memset(dataBits, false, sizeof(dataBits));
+          memset(dataBytes, false, sizeof(dataBytes));
 
           currentState = SEARCHING_PREFIX;
           break;
         }
 
-        dataBits[dataBitIndex++] = isHigh;
+        dataBytes[dataBitIndex / 8] |= isHigh << (7 - (dataBitIndex % 8));
+        dataBitIndex++;
         break;
     }
   }
