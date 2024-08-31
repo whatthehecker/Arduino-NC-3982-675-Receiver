@@ -2,13 +2,9 @@
 
 const int RECEIVER_PIN = 32;
 
-const size_t MAX_GAPS_COUNT = 256;
-
 size_t currentSignalIndex = 0;
+const size_t MAX_GAPS_COUNT = 256;
 unsigned long gapDurations[MAX_GAPS_COUNT];
-
-uint32_t currentCounter = 0;
-
 unsigned long gapStartMicros;
 
 const int SYNC_PREFIX_GAP_DURATION = 8000;
@@ -17,11 +13,15 @@ const int TOLERANCE = 750;
 const int HIGH_GAP_DURATION = 4000;
 const int LOW_GAP_DURATION = 2000;
 
-bool didFindPrefix = false;
-uint8_t dataBitsCount = 0;
-
+uint8_t dataBitIndex = 0;
+// The number of data bits expected in each payload.
 const size_t PAYLOAD_BITS_COUNT = 40;
 bool dataBits[PAYLOAD_BITS_COUNT];
+
+enum State {
+  SEARCHING_PREFIX, FOUND_PREFIX
+};
+State currentState = SEARCHING_PREFIX;
 
 /**
  * ISR for storing the duration of gaps after pulses.
@@ -85,90 +85,75 @@ void printDecodedData(uint8_t *data)
 
 void loop()
 {
-  if (currentSignalIndex > 0)
+
+  for (size_t i = 0; i < currentSignalIndex; i++)
   {
-    for (size_t i = 0; i < currentSignalIndex; i++)
-    {
-      unsigned long currentGapDuration = gapDurations[i];
+    unsigned long currentGapDuration = gapDurations[i];
 
-      if (!didFindPrefix && isBetween(currentGapDuration, SYNC_PREFIX_GAP_DURATION - TOLERANCE, SYNC_PREFIX_GAP_DURATION + TOLERANCE))
-      {
-        didFindPrefix = true;
-        Serial.println("Found prefix, interpreting next values as data...");
-        continue;
-      }
+    switch(currentState) {
+      case SEARCHING_PREFIX:
+        if(isBetween(currentGapDuration, SYNC_PREFIX_GAP_DURATION - TOLERANCE, SYNC_PREFIX_GAP_DURATION + TOLERANCE)) {
+          currentState = FOUND_PREFIX;
+        }
+        break;
+      case FOUND_PREFIX:
+        if(isBetween(currentGapDuration, SYNC_POSTFIX_GAP_DURATION - TOLERANCE, SYNC_POSTFIX_GAP_DURATION + TOLERANCE)) {
+          char buf[80];
+          snprintf(buf, sizeof(buf), "Read %d bytes of data.", dataBitIndex);
+          Serial.println(buf);
 
-      else if (!didFindPrefix)
-      {
-        continue;
-      }
-
-      if (isBetween(currentGapDuration, SYNC_POSTFIX_GAP_DURATION - TOLERANCE, SYNC_POSTFIX_GAP_DURATION + TOLERANCE))
-      {
-        Serial.println("Found postfix, stopping interpreting data.");
-        char buf[80];
-        snprintf(buf, sizeof(buf), "Read %d bytes of data.", dataBitsCount);
-        Serial.println(buf);
-
-        if (dataBitsCount == PAYLOAD_BITS_COUNT)
-        {
-          Serial.println("Data as hex: ");
-          size_t bytesCount = PAYLOAD_BITS_COUNT / 8;
-          uint8_t dataBytes[bytesCount];
-
-          for (size_t byteIndex = 0; byteIndex < bytesCount; byteIndex++)
+          if (dataBitIndex == PAYLOAD_BITS_COUNT)
           {
-            dataBytes[byteIndex] = 0;
-            for (size_t bitIndex = 0; bitIndex < 8; bitIndex++)
+            Serial.println("Data as hex: ");
+            size_t bytesCount = PAYLOAD_BITS_COUNT / 8;
+            uint8_t dataBytes[bytesCount];
+
+            for (size_t byteIndex = 0; byteIndex < bytesCount; byteIndex++)
             {
-              dataBytes[byteIndex] |= (dataBits[bitIndex + byteIndex * 8] << (7 - bitIndex));
+              dataBytes[byteIndex] = 0;
+              for (size_t bitIndex = 0; bitIndex < 8; bitIndex++)
+              {
+                dataBytes[byteIndex] |= (dataBits[bitIndex + byteIndex * 8] << (7 - bitIndex));
+              }
+
+              Serial.print(dataBytes[byteIndex], HEX);
+              Serial.print(" ");
             }
 
-            Serial.print(dataBytes[byteIndex], HEX);
-            Serial.print(" ");
+            Serial.println();
+
+            printDecodedData(dataBytes);
           }
 
-          Serial.println();
+          dataBitIndex = 0;
+          memset(dataBits, false, sizeof(dataBits));
 
-          printDecodedData(dataBytes);
+          currentState = SEARCHING_PREFIX;
+          break;
         }
 
-        didFindPrefix = false;
-        dataBitsCount = 0;
-        memset(dataBits, false, sizeof(dataBits));
-        continue;
-      }
+        bool isHigh = isBetween(currentGapDuration, HIGH_GAP_DURATION - TOLERANCE, HIGH_GAP_DURATION + TOLERANCE);
+        bool isLow = isBetween(currentGapDuration, LOW_GAP_DURATION - TOLERANCE, LOW_GAP_DURATION + TOLERANCE);
 
-      bool isHigh = isBetween(currentGapDuration, HIGH_GAP_DURATION - TOLERANCE, HIGH_GAP_DURATION + TOLERANCE);
-      bool isLow = isBetween(currentGapDuration, LOW_GAP_DURATION - TOLERANCE, LOW_GAP_DURATION + TOLERANCE);
+        // Reset received data if either:
+        // - Received data is not a valid bit duration
+        // - Transmission contains more bits than we expect
+        // If either happens, discard data currently in cache and go back to searching for the next transmission.
+        if (!isLow && !isHigh || dataBitIndex >= PAYLOAD_BITS_COUNT)
+        {
+          dataBitIndex = 0;
+          memset(dataBits, false, sizeof(dataBits));
 
-      if (!isLow && !isHigh)
-      {
-        char buf[80];
-        snprintf(buf, sizeof(buf), "Found invalid gap with length %ld, going back to prefix search.", gapDurations[i]);
-        Serial.println(buf);
+          currentState = SEARCHING_PREFIX;
+          break;
+        }
 
-        didFindPrefix = false;
-        dataBitsCount = 0;
-        memset(dataBits, false, sizeof(dataBits));
-        continue;
-      }
-      else if (dataBitsCount >= PAYLOAD_BITS_COUNT)
-      {
-        Serial.println("Received too many data bits, ignoring the rest.");
-
-        didFindPrefix = false;
-        dataBitsCount = 0;
-        memset(dataBits, false, sizeof(dataBits));
-        continue;
-      }
-      else
-      {
-        dataBits[dataBitsCount++] = isHigh;
-      }
+        dataBits[dataBitIndex++] = isHigh;
+        break;
     }
-
-    currentSignalIndex = 0;
-    memset(gapDurations, 0, MAX_GAPS_COUNT);
   }
+
+  // Clear buffer with received gaps so that interrupt routine may fill the buffer again.
+  currentSignalIndex = 0;
+  memset(gapDurations, 0, MAX_GAPS_COUNT);
 }
