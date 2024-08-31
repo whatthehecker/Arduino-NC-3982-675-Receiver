@@ -5,7 +5,7 @@ const int RECEIVER_PIN = 32;
 size_t currentSignalIndex = 0;
 const size_t MAX_GAPS_COUNT = 256;
 unsigned long gapDurations[MAX_GAPS_COUNT];
-unsigned long gapStartMicros;
+unsigned long gapStartMicros = 0;
 
 const int SYNC_PREFIX_GAP_DURATION = 8000;
 const int SYNC_POSTFIX_GAP_DURATION = 16000;
@@ -22,6 +22,9 @@ enum State {
   SEARCHING_PREFIX, FOUND_PREFIX
 };
 State currentState = SEARCHING_PREFIX;
+
+unsigned long lastFullTransmissionMillis = 0;
+const unsigned long MIN_DELAY_BETWEEN_TRANSMISSIONS = 20000;
 
 /**
  * ISR for storing the duration of gaps after pulses.
@@ -102,7 +105,10 @@ void loop()
           snprintf(buf, sizeof(buf), "Read %d bytes of data.", dataBitIndex);
           Serial.println(buf);
 
-          if (dataBitIndex == PAYLOAD_BITS_COUNT)
+          // Interpret data if we received the exact number of bits we expect and the last transmission
+          // hasn't been too recent (otherwise this will fire multiple times in a row since the sensor sends
+          // its data several times in a row).
+          if (dataBitIndex == PAYLOAD_BITS_COUNT && millis() - lastFullTransmissionMillis >= MIN_DELAY_BETWEEN_TRANSMISSIONS)
           {
             Serial.println("Data as hex: ");
             size_t bytesCount = PAYLOAD_BITS_COUNT / 8;
@@ -123,6 +129,7 @@ void loop()
             Serial.println();
 
             printDecodedData(dataBytes);
+            lastFullTransmissionMillis = millis();
           }
 
           dataBitIndex = 0;
