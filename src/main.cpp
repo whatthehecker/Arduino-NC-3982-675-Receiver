@@ -4,6 +4,7 @@
 
 const int RECEIVER_PIN = 32;
 const int BUTTON_PIN = 27;
+const int LED_PIN = 26;
 
 size_t currentSignalIndex = 0;
 const size_t MAX_GAPS_COUNT = 256;
@@ -45,6 +46,8 @@ const uint8_t EEPROM_EMPTY_VALUE = 0xFF;
 // Stores the payload of the last transmission per sensor.
 // This could also be defined as a nested 2-dimensional array, but for simplicity sake this works too.
 uint8_t lastDataPerSensor[PAYLOAD_BYTES_COUNT * NUM_SENSORS];
+
+float lastPerceivedTemperaturesCelsius[NUM_SENSORS];
 
 bool isKnownSensor(uint8_t sensorId);
 bool isSearchingForSensors();
@@ -142,6 +145,9 @@ void setup()
 
   button.setPressMs(1000);
   button.attachLongPressStop(onButtonLongPressed);
+
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
 }
 
 bool isBetween(int32_t value, int32_t lower, int32_t upper)
@@ -217,12 +223,26 @@ void handleData(uint8_t *data)
       {
         // Store new data as last received data.
         memcpy(&(lastDataPerSensor[sensorIndex * PAYLOAD_BYTES_COUNT]), data, PAYLOAD_BYTES_COUNT);
+        lastPerceivedTemperaturesCelsius[sensorIndex] = perceivedTemperature;
 
         char buf[256];
         snprintf(buf, sizeof(buf),
                  "ID: %02x, Temp Celsius: %2.2f (feels like %2.2f), Humidity: %u%%, Channel: %d, Is button press: %d",
                  id, temperatureCelsius, perceivedTemperature, humidity, channelRaw, isButtonPress);
         Serial.println(buf);
+
+        if(NUM_SENSORS >= 2 && currentSensorIndex >= 1) {
+          float insidePerceivedTemp = lastPerceivedTemperaturesCelsius[0];
+          float outsidePerceivedTemp = lastPerceivedTemperaturesCelsius[1];
+
+          digitalWrite(LED_PIN, outsidePerceivedTemp < insidePerceivedTemp);
+
+          Serial.print("Perceived temperatures: ");
+          Serial.print(insidePerceivedTemp);
+          Serial.print(" deg Celsius inside / ");
+          Serial.print(outsidePerceivedTemp);
+          Serial.println(" deg Celsius outside");
+        }
       }
       else
       {
