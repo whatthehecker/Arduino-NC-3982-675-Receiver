@@ -67,8 +67,10 @@ bool isSearchingForSensors()
   return currentSensorIndex < NUM_SENSORS;
 }
 
-void writeCurrentSensorsToStorage() {
-  for(size_t i = 0; i < NUM_SENSORS; i++) {
+void writeCurrentSensorsToStorage()
+{
+  for (size_t i = 0; i < NUM_SENSORS; i++)
+  {
     EEPROM.write(EEPROM_SENSOR_IDS_ADDRESS + i, sensorIds[i]);
   }
   EEPROM.commit();
@@ -161,10 +163,32 @@ void handleData(uint8_t *data)
   // Humidity is BCD-encoded with 2 decimal places, so multiply the first one by 10 to receive the decimal value.
   uint8_t humidity = (data[3] & 0x0F) * 10 + (data[4] >> 4);
 
+  float perceivedTemperature;
+  if (humidity >= 40 && temperatureCelsius >= 26.7)
+  {
+    // Formula and coefficients taken from https://en.wikipedia.org/wiki/Heat_index
+    // Empty comments added because VSCode likes to line wrap somewhere else without them.
+    perceivedTemperature =
+        -8.784695                                                               //
+        + 1.61139411 * temperatureCelsius                                       //
+        + 2.338549 * humidity                                                   //
+        - 0.14611605 * temperatureCelsius * humidity                            //
+        - 1.2308094 * 1e-2 * temperatureCelsius * temperatureCelsius           //
+        - 1.6424828 * 1e-2 * ((float)humidity) * humidity                      //
+        + 2.211732 * 1e-3 * temperatureCelsius * temperatureCelsius * humidity //
+        + 7.2546 * 1e-4 * temperatureCelsius * ((float)humidity) * humidity    //
+        - 3.582 * 1e-6 * temperatureCelsius * temperatureCelsius * ((float)humidity) * humidity;
+  }
+  else
+  {
+    perceivedTemperature = temperatureCelsius;
+  }
+
   // If we were searching for sensors and the sensor had a button pressed on it to send this transmission, store the sensor's ID.
   if (isSearchingForSensors())
   {
-    if(isButtonPress && !isKnownSensor(id)) {
+    if (isButtonPress && !isKnownSensor(id))
+    {
       sensorIds[currentSensorIndex++] = id;
       writeCurrentSensorsToStorage();
 
@@ -173,8 +197,10 @@ void handleData(uint8_t *data)
       Serial.println(" to known sensors.");
     }
   }
-  else {
-    if(isKnownSensor(id)) {
+  else
+  {
+    if (isKnownSensor(id))
+    {
       uint8_t *lastDataForThisSensor;
       size_t sensorIndex;
       for (sensorIndex = 0; sensorIndex < NUM_SENSORS; sensorIndex++)
@@ -193,14 +219,18 @@ void handleData(uint8_t *data)
         memcpy(&(lastDataPerSensor[sensorIndex * PAYLOAD_BYTES_COUNT]), data, PAYLOAD_BYTES_COUNT);
 
         char buf[256];
-        snprintf(buf, sizeof(buf), "ID: %02x\nTemp Celsius: %2.2f\nHumidity: %u%%\nChannel: %d\nIs button press: %d", id, temperatureCelsius, humidity, channelRaw, isButtonPress);
+        snprintf(buf, sizeof(buf),
+                 "ID: %02x, Temp Celsius: %2.2f (feels like %2.2f), Humidity: %u%%, Channel: %d, Is button press: %d",
+                 id, temperatureCelsius, perceivedTemperature, humidity, channelRaw, isButtonPress);
         Serial.println(buf);
       }
-      else {
+      else
+      {
         Serial.println("Received data which is not different from previous data, ignoring.");
       }
     }
-    else {
+    else
+    {
       Serial.print("Received data from sensor with unknown ID ");
       Serial.print(id, HEX);
       Serial.println(", ignoring it.");
@@ -227,7 +257,7 @@ void handleSignals()
       {
         char buf[80];
         snprintf(buf, sizeof(buf), "Read %d bytes of data.", dataBitIndex);
-        //Serial.println(buf);
+        // Serial.println(buf);
 
         // Interpret data if we received the exact number of bits we expect and the last transmission
         // hasn't been too recent (otherwise this will fire multiple times in a row since the sensor sends
