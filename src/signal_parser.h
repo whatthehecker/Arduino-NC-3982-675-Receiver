@@ -2,23 +2,7 @@
 #define SIGNAL_PARSER_H
 #include <stdint.h>
 #include <stddef.h>
-
-class SensorData
-{
-public:
-    uint8_t id;
-    bool isButtonPress;
-    float temperatureCelsius;
-    uint8_t channel;
-    uint8_t humidity;
-
-    bool operator==(const SensorData &other) const;
-
-    SensorData() = default;
-
-    SensorData(uint8_t id, bool isButtonPress,
-               float temperatureCelsius, uint8_t channel, uint8_t humidity) : id(id), isButtonPress(isButtonPress), temperatureCelsius(temperatureCelsius), channel(channel), humidity(humidity) {}
-};
+#include "sensor_data.h"
 
 enum State
 {
@@ -47,7 +31,6 @@ private:
     static const int HIGH_GAP_DURATION = 4000;
     static const int LOW_GAP_DURATION = 2000;
 
-    static SensorData decodeData(uint8_t *data);
     static bool isBetween(int32_t value, int32_t lower, int32_t upper);
 
     State currentState = SEARCHING_PREFIX;
