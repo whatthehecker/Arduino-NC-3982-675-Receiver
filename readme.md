@@ -75,9 +75,10 @@ This section might be partly or completely wrong and is based on how I understan
 
 The RF receiver board emits either a high or low signal whenever radio signals are received.
 The received signals are binary, there is no information carried by the amplitude.
-Using interrupts, the program keeps track of whether the signal changed from low to high (start of pulse, end of gap) or from high to low (start of gap, end of pulse).
+`main.cpp` uses an Interrupt Service Routine to react to changes in the signal.
+It keeps track of whether the signal changed from low to high (start of pulse, end of gap) or from high to low (start of gap, end of pulse).
 For every *gap*, its duration is tracked, pulses carry no information and are ignored.
-Based on the duration of each gap, zeros and ones are encoded.
+Based on the duration of each gap, zeros and ones are encoded (which is implemented using a state machine in `signal_parser.cpp`).
 More info about this can be found at [the source file for the decoder at the rtl_433 repository](https://github.com/merbanan/rtl_433/blob/master/src/devices/infactory.c).
 
 The payload of each transmission is detected based on a fixed length prefix and postfix gap.
