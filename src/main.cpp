@@ -38,7 +38,7 @@ OneButton button = OneButton(
 // The number of weather sensors you want to connect to this program.
 const size_t NUM_SENSORS = 2;
 uint8_t sensorIds[NUM_SENSORS];
-size_t currentSensorIndex = 0;
+size_t currentSensorsCount = 0;
 
 size_t EEPROM_SENSOR_IDS_ADDRESS = 0x0;
 const uint8_t EEPROM_EMPTY_VALUE = 0xFF;
@@ -55,7 +55,7 @@ void writeCurrentSensorsToStorage();
 
 bool isKnownSensor(uint8_t sensorId)
 {
-  for (size_t i = 0; i < currentSensorIndex; i++)
+  for (size_t i = 0; i < currentSensorsCount; i++)
   {
     if (sensorIds[i] == sensorId)
     {
@@ -67,7 +67,7 @@ bool isKnownSensor(uint8_t sensorId)
 
 bool isSearchingForSensors()
 {
-  return currentSensorIndex < NUM_SENSORS;
+  return currentSensorsCount < NUM_SENSORS;
 }
 
 void writeCurrentSensorsToStorage()
@@ -111,7 +111,7 @@ void onButtonLongPressed()
   // Forget about which sensors are connected.
   memset(sensorIds, EEPROM_EMPTY_VALUE, sizeof(sensorIds));
   writeCurrentSensorsToStorage();
-  currentSensorIndex = 0;
+  currentSensorsCount = 0;
 
   Serial.println("Resetting known sensors.");
 }
@@ -125,20 +125,23 @@ void setup()
   // Write the empty value into sensor IDs so that writing the array back into EEPROM marks these entries as "empty".
   memset(sensorIds, EEPROM_EMPTY_VALUE, NUM_SENSORS * sizeof(uint8_t));
 
+  currentSensorsCount = 0;
   Serial.println("Restoring sensor IDs from EEPROM: ");
-  for (currentSensorIndex = 0; currentSensorIndex < NUM_SENSORS; currentSensorIndex++)
+  for (size_t i = 0; i < NUM_SENSORS; i++)
   {
-    uint8_t readId = EEPROM.read(EEPROM_SENSOR_IDS_ADDRESS + currentSensorIndex);
+    uint8_t readId = EEPROM.read(EEPROM_SENSOR_IDS_ADDRESS + i);
     // If a special "empty" value was read, assume that this means there was no data (and not a sensor with an ID which randomly matched this value).
     if (readId == EEPROM_EMPTY_VALUE)
     {
       break;
     }
-    sensorIds[currentSensorIndex] = readId;
+    sensorIds[currentSensorsCount++] = readId;
     Serial.print("- ");
     Serial.println(readId, HEX);
   }
-  Serial.println("End of restoration list.");
+  Serial.print("Finished reading stored sensor IDs. Read ");
+  Serial.println(currentSensorsCount);
+  Serial.print(" sensors IDs.");
 
   pinMode(RECEIVER_PIN, INPUT);
   attachInterrupt(digitalPinToInterrupt(RECEIVER_PIN), onReceiverChanged, CHANGE);
@@ -195,7 +198,7 @@ void handleData(uint8_t *data)
   {
     if (isButtonPress && !isKnownSensor(id))
     {
-      sensorIds[currentSensorIndex++] = id;
+      sensorIds[currentSensorsCount++] = id;
       writeCurrentSensorsToStorage();
 
       Serial.print("Added sensor with ID ");
@@ -231,7 +234,7 @@ void handleData(uint8_t *data)
                  id, temperatureCelsius, perceivedTemperature, humidity, channelRaw, isButtonPress);
         Serial.println(buf);
 
-        if(NUM_SENSORS >= 2 && currentSensorIndex >= 1) {
+        if(NUM_SENSORS >= 2 && currentSensorsCount >= 2) {
           float insidePerceivedTemp = lastPerceivedTemperaturesCelsius[0];
           float outsidePerceivedTemp = lastPerceivedTemperaturesCelsius[1];
 
@@ -275,10 +278,6 @@ void handleSignals()
     case FOUND_PREFIX:
       if (isBetween(currentGapDuration, SYNC_POSTFIX_GAP_DURATION - TOLERANCE, SYNC_POSTFIX_GAP_DURATION + TOLERANCE))
       {
-        char buf[80];
-        snprintf(buf, sizeof(buf), "Read %d bytes of data.", dataBitIndex);
-        // Serial.println(buf);
-
         // Interpret data if we received the exact number of bits we expect and the last transmission
         // hasn't been too recent (otherwise this will fire multiple times in a row since the sensor sends
         // its data several times in a row).
