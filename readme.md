@@ -5,7 +5,6 @@ Implements a receiver for signals from an NC-3982-675 weather station sensor usi
 Does the following things:
 1. Allows for connecting and reading from one or more NC-3982-675 sensors.
 2. If at least two sensors are connected, compares the [apparent temperature](https://en.wikipedia.org/wiki/Apparent_temperature) between their readings and lights up an LED if sensor 2 reports a colder apparent temperature than sensor 1.
-3. Optionally sends the received temperature and humidity values over MQTT for further use by home automation software such as Home Assistant (not yet implemented).
 
 ## Why does this exist?
 I got myself some NC-3982-675 weather station sensors which work on the 433 MHz band.
