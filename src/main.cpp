@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <OneButton.h>
 #include <EEPROM.h>
+#include "signal_parser.h"
 
 const int RECEIVER_PIN = 32;
 const int BUTTON_PIN = 27;
@@ -11,24 +12,7 @@ const size_t MAX_GAPS_COUNT = 256;
 unsigned long gapDurations[MAX_GAPS_COUNT];
 unsigned long gapStartMicros = 0;
 
-const int SYNC_PREFIX_GAP_DURATION = 8000;
-const int SYNC_POSTFIX_GAP_DURATION = 16000;
-const int TOLERANCE = 750;
-const int HIGH_GAP_DURATION = 4000;
-const int LOW_GAP_DURATION = 2000;
-
-uint8_t dataBitIndex = 0;
-// The number of data bits expected in each payload.
-const size_t PAYLOAD_BITS_COUNT = 40;
-const size_t PAYLOAD_BYTES_COUNT = PAYLOAD_BITS_COUNT / 8;
-uint8_t dataBytes[PAYLOAD_BYTES_COUNT];
-
-enum State
-{
-  SEARCHING_PREFIX,
-  FOUND_PREFIX,
-};
-State currentState = SEARCHING_PREFIX;
+SignalParser parser;
 
 OneButton button = OneButton(
     BUTTON_PIN,
@@ -43,20 +27,7 @@ size_t currentSensorsCount = 0;
 size_t EEPROM_SENSOR_IDS_ADDRESS = 0x0;
 const uint8_t EEPROM_EMPTY_VALUE = 0xFF;
 
-struct SensorData
-{
-  uint8_t id;
-  uint8_t checksum;
-  bool isButtonPress;
-  float temperatureCelsius;
-  uint8_t channel;
-  uint8_t humidity;
-};
-
-// Stores the payload of the last transmission per sensor.
-// This could also be defined as a nested 2-dimensional array, but for simplicity sake this works too.
-uint8_t lastDataPerSensor[PAYLOAD_BYTES_COUNT * NUM_SENSORS];
-
+SensorData lastDataPerSensor[NUM_SENSORS];
 float lastApparentTemperatures[NUM_SENSORS];
 
 size_t findSensorIndex(uint8_t sensorId);
@@ -67,30 +38,6 @@ bool shouldCompareTemperatures();
 void updateTemperatureLed();
 void addSensor(uint8_t sensorId);
 float calculateApparentTemperature(float temperatureCelsius, float humidity);
-SensorData decodeData(uint8_t *data);
-
-SensorData decodeData(uint8_t *data)
-{
-  uint8_t id = data[0];
-  uint8_t checksum = data[1] >> 4;
-  uint16_t temperatureRaw = (data[2] << 4) | (data[3] >> 4);
-  uint8_t channelRaw = data[4] & 0x0F;
-  uint8_t isButtonPress = (data[1] >> 3) & 1;
-
-  float temperatureFahrenheit = (temperatureRaw - 900) * 0.1f;
-  float temperatureCelsius = (temperatureFahrenheit - 32.0) / 1.8;
-  // Humidity is BCD-encoded with 2 decimal places, so multiply the first one by 10 to receive the decimal value.
-  uint8_t humidity = (data[3] & 0x0F) * 10 + (data[4] >> 4);
-
-  return {
-      .id = id,
-      .checksum = checksum,
-      .isButtonPress = isButtonPress,
-      .temperatureCelsius = temperatureCelsius,
-      .channel = channelRaw,
-      .humidity = humidity,
-  };
-}
 
 float calculateApparentTemperature(float temperatureCelsius, float humidity)
 {
@@ -245,14 +192,8 @@ void setup()
   digitalWrite(LED_PIN, LOW);
 }
 
-bool isBetween(int32_t value, int32_t lower, int32_t upper)
+void onPacketReceived(const SensorData &decoded)
 {
-  return lower <= value && value <= upper;
-}
-
-void handleData(uint8_t *data)
-{
-  SensorData decoded = decodeData(data);
   float apparentTemperature = calculateApparentTemperature(decoded.temperatureCelsius, decoded.humidity);
 
   // If we were searching for sensors and the sensor had a button pressed on it to send this transmission, store the sensor's ID.
@@ -271,17 +212,17 @@ void handleData(uint8_t *data)
   }
 
   size_t sensorIndex = findSensorIndex(decoded.id);
-  uint8_t *lastDataForThisSensor = &(lastDataPerSensor[sensorIndex * PAYLOAD_BYTES_COUNT]);
+  const SensorData &lastDataForThisSensor = lastDataPerSensor[sensorIndex];
 
   // If new data is same as old data, ignore.
-  if (memcmp(lastDataForThisSensor, data, PAYLOAD_BYTES_COUNT) == 0)
+  if (lastDataForThisSensor == decoded)
   {
     Serial.println("Received data which is not different from previous data, ignoring.");
     return;
   }
 
   // Store new data as last received data.
-  memcpy(&(lastDataPerSensor[sensorIndex * PAYLOAD_BYTES_COUNT]), data, PAYLOAD_BYTES_COUNT);
+  lastDataPerSensor[sensorIndex] = decoded;
   lastApparentTemperatures[sensorIndex] = apparentTemperature;
 
   char buf[256];
@@ -296,68 +237,20 @@ void handleData(uint8_t *data)
   }
 }
 
-void handleSignals()
-{
-  for (size_t i = 0; i < currentSignalIndex; i++)
-  {
-    unsigned long currentGapDuration = gapDurations[i];
-
-    switch (currentState)
-    {
-    case SEARCHING_PREFIX:
-      if (isBetween(currentGapDuration, SYNC_PREFIX_GAP_DURATION - TOLERANCE, SYNC_PREFIX_GAP_DURATION + TOLERANCE))
-      {
-        currentState = FOUND_PREFIX;
-      }
-      break;
-    case FOUND_PREFIX:
-      if (isBetween(currentGapDuration, SYNC_POSTFIX_GAP_DURATION - TOLERANCE, SYNC_POSTFIX_GAP_DURATION + TOLERANCE))
-      {
-        // Interpret data if we received the exact number of bits we expect and the last transmission
-        // hasn't been too recent (otherwise this will fire multiple times in a row since the sensor sends
-        // its data several times in a row).
-        if (dataBitIndex == PAYLOAD_BITS_COUNT)
-        {
-          handleData(dataBytes);
-        }
-
-        dataBitIndex = 0;
-        memset(dataBytes, false, sizeof(dataBytes));
-
-        currentState = SEARCHING_PREFIX;
-        break;
-      }
-
-      bool isHigh = isBetween(currentGapDuration, HIGH_GAP_DURATION - TOLERANCE, HIGH_GAP_DURATION + TOLERANCE);
-      bool isLow = isBetween(currentGapDuration, LOW_GAP_DURATION - TOLERANCE, LOW_GAP_DURATION + TOLERANCE);
-
-      // Reset received data if either:
-      // - Received data is not a valid bit duration
-      // - Transmission contains more bits than we expect
-      // If either happens, discard data currently in cache and go back to searching for the next transmission.
-      if (!isLow && !isHigh || dataBitIndex >= PAYLOAD_BITS_COUNT)
-      {
-        dataBitIndex = 0;
-        memset(dataBytes, false, sizeof(dataBytes));
-
-        currentState = SEARCHING_PREFIX;
-        break;
-      }
-
-      // Write received bit into the correct byte at the correct index, starting from the MSB.
-      dataBytes[dataBitIndex / 8] |= isHigh << (7 - (dataBitIndex % 8));
-      dataBitIndex++;
-      break;
-    }
-  }
-
-  // Clear buffer with received gaps so that interrupt routine may fill the buffer again.
-  currentSignalIndex = 0;
-  memset(gapDurations, 0, sizeof(gapDurations));
-}
-
 void loop()
 {
   button.tick();
-  handleSignals();
+
+  for (size_t i = 0; i < currentSignalIndex; i++)
+  {
+    unsigned long currentGapDuration = gapDurations[i];
+    SensorData *receivedData = parser.consumeGap(currentGapDuration);
+    if(receivedData != nullptr) {
+      onPacketReceived(*receivedData);
+      delete receivedData;
+    }
+  }
+
+  currentSignalIndex = 0;
+  memset(gapDurations, 0, sizeof(gapDurations));
 }
