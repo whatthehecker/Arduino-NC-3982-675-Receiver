@@ -5,7 +5,7 @@ bool SensorData::operator==(const SensorData &other) const
     return id == other.id && isButtonPress == other.isButtonPress && temperatureCelsius == other.temperatureCelsius && channel == other.channel && humidity == other.humidity;
 }
 
-SensorData SensorData::decode(uint8_t *data)
+SensorData SensorData::decode(const uint8_t *data)
 {
     uint8_t id = data[0];
     uint16_t temperatureRaw = (data[2] << 4) | (data[3] >> 4);

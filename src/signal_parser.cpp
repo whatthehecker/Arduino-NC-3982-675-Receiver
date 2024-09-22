@@ -1,18 +1,18 @@
 #include "signal_parser.h"
-#include <cstring>
+#include <string.h>
 
 SensorData *SignalParser::consumeGap(unsigned long gapDuration)
 {
     switch (currentState)
     {
     case SEARCHING_PREFIX:
-        if (isBetween(gapDuration, SYNC_PREFIX_GAP_DURATION - TOLERANCE, SYNC_PREFIX_GAP_DURATION + TOLERANCE))
+        if (isAround(gapDuration, SYNC_PREFIX_GAP_DURATION, TOLERANCE))
         {
             currentState = FOUND_PREFIX;
         }
         break;
     case FOUND_PREFIX:
-        if (isBetween(gapDuration, SYNC_POSTFIX_GAP_DURATION - TOLERANCE, SYNC_POSTFIX_GAP_DURATION + TOLERANCE))
+        if (isAround(gapDuration, SYNC_POSTFIX_GAP_DURATION, TOLERANCE))
         {
             // Interpret data if we received the exact number of bits we expect and the last transmission
             // hasn't been too recent (otherwise this will fire multiple times in a row since the sensor sends
@@ -29,14 +29,14 @@ SensorData *SignalParser::consumeGap(unsigned long gapDuration)
             break;
         }
 
-        bool isHigh = isBetween(gapDuration, HIGH_GAP_DURATION - TOLERANCE, HIGH_GAP_DURATION + TOLERANCE);
-        bool isLow = isBetween(gapDuration, LOW_GAP_DURATION - TOLERANCE, LOW_GAP_DURATION + TOLERANCE);
+        bool isHigh = isAround(gapDuration, HIGH_GAP_DURATION, TOLERANCE);
+        bool isLow = isAround(gapDuration, LOW_GAP_DURATION, TOLERANCE);
 
         // Reset received data if either:
         // - Received data is not a valid bit duration
         // - Transmission contains more bits than we expect
         // If either happens, discard data currently in cache and go back to searching for the next transmission.
-        if (!isLow && !isHigh || dataBitIndex >= PAYLOAD_BITS_COUNT)
+        if ((!isLow && !isHigh) || dataBitIndex >= PAYLOAD_BITS_COUNT)
         {
             dataBitIndex = 0;
             memset(dataBytes, false, sizeof(dataBytes));
@@ -54,7 +54,7 @@ SensorData *SignalParser::consumeGap(unsigned long gapDuration)
     return nullptr;
 }
 
-bool SignalParser::isBetween(int32_t value, int32_t lower, int32_t upper)
+bool SignalParser::isAround(int32_t value, int32_t target, int32_t tolerance)
 {
-    return lower <= value && value <= upper;
+    return (target - tolerance) <= value && value <= (target + tolerance);
 }

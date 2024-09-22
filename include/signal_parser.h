@@ -24,6 +24,8 @@ public:
      */
     SensorData *consumeGap(unsigned long gapDuration);
 
+    SignalParser() = default;
+
 private:
     static const int SYNC_PREFIX_GAP_DURATION = 8000;
     static const int SYNC_POSTFIX_GAP_DURATION = 16000;
@@ -31,11 +33,11 @@ private:
     static const int HIGH_GAP_DURATION = 4000;
     static const int LOW_GAP_DURATION = 2000;
 
-    static bool isBetween(int32_t value, int32_t lower, int32_t upper);
+    static bool isAround(int32_t value, int32_t target, int32_t tolerance);
 
     State currentState = SEARCHING_PREFIX;
     uint8_t dataBitIndex = 0;
-    uint8_t dataBytes[PAYLOAD_BYTES_COUNT];
+    uint8_t dataBytes[PAYLOAD_BYTES_COUNT] = {0};
 };
 
 #endif

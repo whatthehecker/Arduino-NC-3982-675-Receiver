@@ -11,7 +11,7 @@ public:
     uint8_t channel;
     uint8_t humidity;
 
-    static SensorData decode(uint8_t *data);
+    static SensorData decode(const uint8_t *data);
 
     bool operator==(const SensorData &other) const;
 
