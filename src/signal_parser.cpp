@@ -14,9 +14,6 @@ SensorData *SignalParser::consumeGap(unsigned long gapDuration)
     case FOUND_PREFIX:
         if (isAround(gapDuration, SYNC_POSTFIX_GAP_DURATION, TOLERANCE))
         {
-            // Interpret data if we received the exact number of bits we expect and the last transmission
-            // hasn't been too recent (otherwise this will fire multiple times in a row since the sensor sends
-            // its data several times in a row).
             if (dataBitIndex == PAYLOAD_BITS_COUNT)
             {
                 return new SensorData(SensorData::decode(dataBytes));
